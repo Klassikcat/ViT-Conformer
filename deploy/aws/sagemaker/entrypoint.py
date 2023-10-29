@@ -1,0 +1,4 @@
+from sagemaker_inference import model_server
+from .handler_service import ConformerHandlerService
+
+model_server.start_model_server(handler_service=ConformerHandlerService)
