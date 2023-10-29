@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE instance-profile
+        SYSTEM "https://resources.jetbrains.com/writerside/1.0/product-profile.dtd">
+
+<instance-profile id="vit-conformer-docs"
+                 name="vit-conformer-docs"
+                 start-page="starter-topic.md">
+
+    <toc-element topic="starter-topic.md"/>
+    <toc-element topic="quick-start.md"/>
+    <toc-element topic="Installation.md">
+        <toc-element topic="Start-with-Code.md"/>
+        <toc-element topic="PyPI.md"/>
+        <toc-element topic="install_from_docker.md"/>
+    </toc-element>
+</instance-profile>

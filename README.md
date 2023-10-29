@@ -41,6 +41,8 @@ This dynamic dataset selection enhances your model's adaptability to specific do
 
 ## Installation
 
+See [documentation](./docs) for more details. Below instructions are for quick start.
+
 ### PyPI
 
 ```shell
