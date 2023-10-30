@@ -46,14 +46,15 @@ See [documentation](./docs) for more details. Below instructions are for quick s
 ### PyPI
 
 ```shell
-git clone 
+git clone https://github.com/Klassikcat/ViT-Conformer
 python3 pip install -U VitConformer # This installs both VitConformer and AutoTrain.
 ```
 
 ### Docker
 
 ```shell
-docker build 
+git clone https://github.com/Klassikcat/ViT-Conformer
+docker build ViT-Conformer/dockerFiles -t local.DockerFile
 ```
 
 ## Validate installation
