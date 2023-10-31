@@ -43,19 +43,23 @@ This dynamic dataset selection enhances your model's adaptability to specific do
 
 See [documentation](./docs) for more details. Below instructions are for quick start.
 
-### PyPI
+<details onclose>
+<summary>PyPI</summary>
 
 ```shell
 git clone https://github.com/Klassikcat/ViT-Conformer
 python3 pip install -U VitConformer # This installs both VitConformer and AutoTrain.
 ```
+</details>
 
-### Docker
+<details onclose>
+<summary>Docker</summary>
 
 ```shell
 git clone https://github.com/Klassikcat/ViT-Conformer
 docker build ViT-Conformer/dockerFiles -t local.DockerFile
 ```
+</details>
 
 ## Validate installation
 
@@ -66,10 +70,18 @@ python3 test/test_autotrain_installation.py
 
 ## Deploy to your server
 
-### Deploy to AWS Server
+<details open>
+<summary>Deploy to AWS Server</summary>
+ </details>
 
-### Deploy to your local machine or on-premise server.
+<details open>
+<summary>Deploy to your local machine or on-premise server</summary>
+</details>
 
 ## License
+
+### Code
+
+### Pre-trained Weights
 
 ## Citations
