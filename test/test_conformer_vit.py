@@ -26,6 +26,6 @@ if __name__ == '__main__':
 
     logging.info(f"size of tensor: {mel.shape}")
     base_model(mel, torch.tensor([len(mel)]))
-    model(mel, torch.tensor([100], dtype=torch.float32))
+    model(mel, torch.tensor([len(mel)]))
     logging.info("Done!")
 #%%
