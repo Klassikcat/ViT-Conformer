@@ -22,11 +22,11 @@ class ConformerBase(ptl.LightningModule):
     ) -> None:
         super().__init__()
         self.joint_ctc_attention = joint_ctc_attention
+        self.conv_subsample = Conv2dSubsampling(input_dim, in_channels=1, out_channels=encoder_dim)
         self.input_projection = nn.Sequential(
             Linear(self.conv_subsample.get_output_dim(), encoder_dim),
             nn.Dropout(p=input_dropout_p),
         )
-        self.conv_subsample = Conv2dSubsampling(input_dim, in_channels=1, out_channels=encoder_dim)
         if self.joint_ctc_attention:
             self.fc = nn.Sequential(
                 Transpose(shape=(1, 2)),

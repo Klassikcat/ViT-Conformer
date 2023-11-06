@@ -629,6 +629,7 @@ class MaskConv2d(nn.Module):
 
         return seq_lengths.int()
 
+
 class Conv2dSubsampling(Conv2dExtractor):
     r"""
     Convolutional 2D subsampling (to 1/4 length)
