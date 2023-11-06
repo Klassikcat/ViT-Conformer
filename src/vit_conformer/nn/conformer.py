@@ -31,6 +31,25 @@ from torch import Tensor
 from .activations import GLU
 
 
+def get_class_name(obj: Any) -> str:
+    return obj.__class__.__name__
+
+
+class BaseConv2d(nn.Module):
+    """Base convolution module."""
+
+    def __init__(self):
+        super(BaseConv2d, self).__init__()
+
+    def _get_sequence_lengths(self, seq_lengths):
+        return (
+                seq_lengths + 2 * self.conv.padding[0] - self.conv.dilation[0] * (self.conv.kernel_size[0] - 1) - 1
+        ) // self.conv.stride[0] + 1
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError
+
+
 class Linear(nn.Module):
     r"""
     Wrapper class of torch.nn.Linear
@@ -407,6 +426,255 @@ class MultiHeadedSelfAttentionModule(nn.Module):
         return self.dropout(outputs)
 
 
+class Conv2dExtractor(nn.Module):
+    r"""
+    Provides inteface of convolutional extractor.
+
+    Note:
+        Do not use this class directly, use one of the sub classes.
+        Define the 'self.conv' class variable.
+
+    Inputs: inputs, input_lengths
+        - **inputs** (batch, time, dim): Tensor containing input vectors
+        - **input_lengths**: Tensor containing containing sequence lengths
+
+    Returns: outputs, output_lengths
+        - **outputs**: Tensor produced by the convolution
+        - **output_lengths**: Tensor containing sequence lengths produced by the convolution
+    """
+    supported_activations = {
+        "hardtanh": nn.Hardtanh(0, 20, inplace=True),
+        "relu": nn.ReLU(inplace=True),
+        "elu": nn.ELU(inplace=True),
+        "leaky_relu": nn.LeakyReLU(inplace=True),
+        "gelu": nn.GELU(),
+        "swish": nn.SiLU(),
+    }
+
+    def __init__(self, input_dim: int, activation: str = "hardtanh") -> None:
+        super(Conv2dExtractor, self).__init__()
+        self.input_dim = input_dim
+        self.activation = Conv2dExtractor.supported_activations[activation]
+        self.conv = None
+
+    def get_output_lengths(self, seq_lengths: torch.Tensor):
+        assert self.conv is not None, "self.conv should be defined"
+
+        for module in self.conv:
+            if isinstance(module, nn.Conv2d):
+                numerator = seq_lengths + 2 * module.padding[1] - module.dilation[1] * (module.kernel_size[1] - 1) - 1
+                seq_lengths = numerator.float() / float(module.stride[1])
+                seq_lengths = seq_lengths.int() + 1
+
+            elif isinstance(module, nn.MaxPool2d):
+                seq_lengths >>= 1
+
+        return seq_lengths.int()
+
+    def get_output_dim(self):
+        if get_class_name(self) == "VGGExtractor":
+            output_dim = (self.input_dim - 1) << 5 if self.input_dim % 2 else self.input_dim << 5
+
+        elif get_class_name(self) == "DeepSpeech2Extractor":
+            output_dim = int(math.floor(self.input_dim + 2 * 20 - 41) / 2 + 1)
+            output_dim = int(math.floor(output_dim + 2 * 10 - 21) / 2 + 1)
+            output_dim <<= 5
+
+        elif get_class_name(self) == "Conv2dSubsampling":
+            factor = ((self.input_dim - 1) // 2 - 1) // 2
+            output_dim = self.out_channels * factor
+
+        else:
+            raise ValueError(f"Unsupported Extractor : {self.extractor}")
+
+        return output_dim
+
+    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
+        r"""
+        inputs: torch.FloatTensor (batch, time, dimension)
+        input_lengths: torch.IntTensor (batch)
+        """
+        outputs, output_lengths = self.conv(inputs.unsqueeze(1).transpose(2, 3), input_lengths)
+
+        batch_size, channels, dimension, seq_lengths = outputs.size()
+        outputs = outputs.permute(0, 3, 1, 2)
+        outputs = outputs.view(batch_size, seq_lengths, channels * dimension)
+
+        return outputs, output_lengths
+
+
+class DepthwiseConv2d(BaseConv2d):
+    r"""
+    When groups == in_channels and out_channels == K * in_channels, where K is a positive integer,
+    this operation is termed in literature as depthwise convolution.
+    ref : https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+
+    Args:
+        in_channels (int): Number of channels in the input
+        out_channels (int): Number of channels produced by the convolution
+        kernel_size (int or tuple): Size of the convolving kernel
+        stride (int, optional): Stride of the convolution. Default: 2
+        padding (int or tuple, optional): Zero-padding added to both sides of the input. Default: 0
+
+    Inputs: inputs
+        - **inputs** (batch, in_channels, time, dim): Tensor containing input vector
+
+    Returns: outputs
+        - **outputs** (batch, out_channels, time, dim): Tensor produces by depthwise 2-D convolution.
+    """
+
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: Union[int, Tuple],
+            stride: int = 2,
+            padding: int = 0,
+    ) -> None:
+        super(DepthwiseConv2d, self).__init__()
+        assert out_channels % in_channels == 0, "out_channels should be constant multiple of in_channels"
+        self.conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            groups=in_channels,
+        )
+
+    def forward(self, inputs: Tensor, input_lengths: Optional[Tensor] = None) -> Tuple[Tensor, int]:
+        if input_lengths is None:
+            return self.conv(inputs)
+        else:
+            return self.conv(inputs), self._get_sequence_lengths(input_lengths)
+
+
+class MaskConv2d(nn.Module):
+    r"""
+    Masking Convolutional Neural Network
+
+    Adds padding to the output of the module based on the given lengths.
+    This is to ensure that the results of the model do not change when batch sizes change during inference.
+    Input needs to be in the shape of (batch_size, channel, hidden_dim, seq_len)
+
+    Refer to https://github.com/SeanNaren/deepspeech.pytorch/blob/master/model.py
+    Copyright (c) 2017 Sean Naren
+    MIT License
+
+    Args:
+        sequential (torch.nn): sequential list of convolution layer
+
+    Inputs: inputs, seq_lengths
+        - **inputs** (torch.FloatTensor): The input of size BxCxHxT
+        - **seq_lengths** (torch.IntTensor): The actual length of each sequence in the batch
+
+    Returns: output, seq_lengths
+        - **output**: Masked output from the sequential
+        - **seq_lengths**: Sequence length of output from the sequential
+    """
+
+    def __init__(self, sequential: nn.Sequential) -> None:
+        super(MaskConv2d, self).__init__()
+        self.sequential: nn.Sequential = sequential
+
+    def forward(self, inputs: Tensor, seq_lengths: Tensor) -> Tuple[Tensor, Tensor]:
+        output = None
+
+        for module in self.sequential:
+            output = module(inputs)
+            mask = torch.BoolTensor(output.size()).fill_(0)
+
+            if output.is_cuda:
+                mask = mask.cuda()
+
+            seq_lengths = self._get_sequence_lengths(module, seq_lengths)
+
+            for idx, length in enumerate(seq_lengths):
+                length = length.item()
+
+                if (mask[idx].size(2) - length) > 0:
+                    mask[idx].narrow(dim=2, start=length, length=mask[idx].size(2) - length).fill_(1)
+
+            output = output.masked_fill(mask, 0)
+            inputs = output
+
+        return output, seq_lengths
+
+    def _get_sequence_lengths(self, module: nn.Module, seq_lengths: Tensor) -> Tensor:
+        r"""
+        Calculate convolutional neural network receptive formula
+
+        Args:
+            module (torch.nn.Module): module of CNN
+            seq_lengths (torch.IntTensor): The actual length of each sequence in the batch
+
+        Returns: seq_lengths
+            - **seq_lengths**: Sequence length of output from the module
+        """
+        if isinstance(module, nn.Conv2d):
+            numerator = seq_lengths + 2 * module.padding[1] - module.dilation[1] * (module.kernel_size[1] - 1) - 1
+            seq_lengths = numerator.float() / float(module.stride[1])
+            seq_lengths = seq_lengths.int() + 1
+        elif isinstance(module, DepthwiseConv2d):
+            numerator = (
+                    seq_lengths
+                    + 2 * module.conv.padding[1]
+                    - module.conv.dilation[1] * (module.conv.kernel_size[1] - 1)
+                    - 1
+            )
+            seq_lengths = numerator.float() / float(module.conv.stride[1])
+            seq_lengths = seq_lengths.int() + 1
+        elif isinstance(module, nn.MaxPool2d):
+            seq_lengths >>= 1
+
+        return seq_lengths.int()
+
+class Conv2dSubsampling(Conv2dExtractor):
+    r"""
+    Convolutional 2D subsampling (to 1/4 length)
+
+    Args:
+        input_dim (int): Dimension of input vector
+        in_channels (int): Number of channels in the input vector
+        out_channels (int): Number of channels produced by the convolution
+        activation (str): Activation function
+
+    Inputs: inputs
+        - **inputs** (batch, time, dim): Tensor containing sequence of inputs
+        - **input_lengths** (batch): list of sequence input lengths
+
+    Returns: outputs, output_lengths
+        - **outputs** (batch, time, dim): Tensor produced by the convolution
+        - **output_lengths** (batch): list of sequence output lengths
+    """
+
+    def __init__(
+            self,
+            input_dim: int,
+            in_channels: int,
+            out_channels: int,
+            activation: str = "relu",
+    ) -> None:
+        super(Conv2dSubsampling, self).__init__(input_dim, activation)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.conv = MaskConv2d(
+            nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
+                self.activation,
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
+                self.activation,
+            )
+        )
+
+    def forward(self, inputs: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        outputs, output_lengths = super().forward(inputs, input_lengths)
+
+        return outputs, output_lengths
+
+
+
 class ConformerConvModule(nn.Module):
     r"""
     Conformer convolution module starts with a pointwise convolution and a gated linear unit (GLU).
@@ -562,10 +830,45 @@ class VitConformerBlock(nn.Module):
             half_step_residual: bool = True,
     ):
         super().__init__()
-        """
-        
-        """
-        pass
+        if half_step_residual:
+            self.feed_forward_residual_factor = 0.5
+        else:
+            self.feed_forward_residual_factor = 1
+
+        self.sequential = nn.Sequential(
+            ResidualConnectionModule(
+                module=FeedForwardModule(
+                    encoder_dim=encoder_dim,
+                    expansion_factor=feed_forward_expansion_factor,
+                    dropout_p=feed_forward_dropout_p,
+                ),
+                module_factor=self.feed_forward_residual_factor,
+            ),
+            ResidualConnectionModule(
+                module=ConformerConvModule(
+                    in_channels=encoder_dim,
+                    kernel_size=conv_kernel_size,
+                    expansion_factor=conv_expansion_factor,
+                    dropout_p=conv_dropout_p,
+                ),
+            ),
+            ResidualConnectionModule(
+                module=MultiHeadedSelfAttentionModule(
+                    d_model=encoder_dim,
+                    num_heads=num_attention_heads,
+                    dropout_p=attention_dropout_p,
+                ),
+            ),
+            ResidualConnectionModule(
+                module=FeedForwardModule(
+                    encoder_dim=encoder_dim,
+                    expansion_factor=feed_forward_expansion_factor,
+                    dropout_p=feed_forward_dropout_p,
+                ),
+                module_factor=self.feed_forward_residual_factor,
+            ),
+            nn.LayerNorm(encoder_dim),
+        )
 
     def forward(self, inputs: Tensor) -> Tensor:
-        pass
+        return self.sequential(inputs)
