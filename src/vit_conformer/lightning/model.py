@@ -1,9 +1,5 @@
 from typing import *
 
-from lightning.pytorch.utilities.types import STEP_OUTPUT, EVAL_DATALOADERS
-from omegaconf import DictConfig
-from pathlib import Path, PosixPath
-
 import torch
 from torch import nn, Tensor
 import lightning.pytorch as ptl

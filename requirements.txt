@@ -6,3 +6,4 @@ lightning>2.0.0
 librosa
 timm
 jupyter
+airflow
