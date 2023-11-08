@@ -1,0 +1,13 @@
+name: build_and_push
+on:
+  push:
+    branches:
+      - pre-release
+  pull_request: {}
+  release:
+    types:
+      - created
+      - edited
+      - published
+jobs:
+  pass
