@@ -54,3 +54,6 @@ class PerformanceMonitoringRealTimeModule(PerformanceMonitoringModule):
            labels=labels,
            mlflow_client_tracking_uri=mlflow_client_tracking_uri,
        )
+
+    def record(self, x: Tensor) -> Tensor:
+        pass

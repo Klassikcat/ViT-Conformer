@@ -52,3 +52,7 @@ python3 test/test_autotrain_installation.py
 ### Pre-trained Weights
 
 ## Citations
+
+- Conformer modeling files: [OpenSpeech in OpenSpeech Team](https://github.com/openspeech-team/openspeech)
+- CTC Beam Search: [CTCDecode of Parlance](https://github.com/parlance/ctcdecode)
+- uses [ChatGPT](https://chat.openai.com) for Demo Front Page
