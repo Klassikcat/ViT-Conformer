@@ -1,6 +1,8 @@
+from pathlib import Path
 from typing import *
 
 import torch
+import torch.onnx
 from torch import nn, Tensor
 import lightning.pytorch as ptl
 from ..nn.conformer import ConformerBlock, VitConformerBlock, Linear, Conv2dSubsampling, Transpose
@@ -19,6 +21,7 @@ class ConformerBase(ptl.LightningModule):
         super().__init__()
         self.joint_ctc_attention = joint_ctc_attention
         self.conv_subsample = Conv2dSubsampling(input_dim, in_channels=1, out_channels=encoder_dim)
+        self.input_dim = input_dim
         self.input_projection = nn.Sequential(
             Linear(self.conv_subsample.get_output_dim(), encoder_dim),
             nn.Dropout(p=input_dropout_p),
@@ -171,6 +174,27 @@ class ConformerBase(ptl.LightningModule):
             targets=targets,
             target_lengths=target_lengths,
         )
+
+    def to_onnx(
+            self,
+            file_path: Union[str, Path],
+            input_sample: Optional[Any] = None,
+            sample_rate: int = 16000,
+            input_names: List[str] = ["input"],
+            output_names: List[str] = ["output"],
+            **kwargs: Any
+    ) -> None:
+        if input_sample is None:
+            input_sample = torch.randn(1, self.input_dim, self.sample_rate, 100)
+        torch.onnx.export(
+            self,
+            input_sample,
+            file_path,
+            input_names=input_names,
+            output_names=output_names,
+            **kwargs,
+        )
+
 
 
 class ConformerModel(ConformerBase):
